@@ -8,7 +8,7 @@ As Data Tables fazem parte do armazenamento gerenciado pelo n8n. **Não** criar 
 
 ## Convenção
 
-Nomes de tabelas em português, sem acentos, e nomes de campos em `camelCase`. As colunas devem usar somente tipos confirmados pelo agente local: `string`, `number`, `boolean` e `date`. Os identificadores de negócio são campos próprios, não dependem do ID interno da Data Table.
+Nomes de tabelas em português, sem acentos, e nomes de campos em `camelCase`. As colunas usam os tipos confirmados pelo agente local: `string`, `number` e `boolean`. Embora `date` esteja disponível, **datas de negócio serão guardadas como `string` ISO 8601 UTC**, para evitar ambiguidades na exportação CSV e facilitar a migração. Os identificadores de negócio são campos próprios, não dependem do ID interno da Data Table.
 
 ## Quatro tabelas para o MVP
 
@@ -34,7 +34,7 @@ Nomes de tabelas em português, sem acentos, e nomes de campos em `camelCase`. A
 | `precoCentavos` | number | Preço anunciado, em centavos inteiros |
 | `precoOriginalCentavos` | number | Preço anterior *informado pela plataforma*, se existente |
 | `freteCentavos` | number | Somente se conhecido; vazio não equivale a frete grátis |
-| `coletadoEm` | date | Data/hora da observação (preferir UTC) |
+| `coletadoEm` | string | Data/hora da observação (preferir UTC) |
 | `origem` | string | Endpoint ou feed autorizado |
 | `condicoesJson` | string | Condições relevantes, serializadas em JSON |
 
@@ -50,7 +50,7 @@ Nomes de tabelas em português, sem acentos, e nomes de campos em `camelCase`. A
 | `situacao` | string | `pendente`, `aprovada` ou `rejeitada` |
 | `urlAnuncio` | string | URL original ou reconstruída, a validar |
 | `urlAfiliado` | string | Link comissionável verificado e inserido pela pessoa responsável |
-| `revisadoEm` | date | Data da decisão humana |
+| `revisadoEm` | string | Data da decisão humana |
 
 ### `publicacoes`
 
@@ -62,7 +62,7 @@ Nomes de tabelas em português, sem acentos, e nomes de campos em `camelCase`. A
 | `urlImagem` | string | Imagem, se validada |
 | `situacao` | string | `rascunho`, `aprovada`, `submetida`, `enviada`, `entregue`, `falha` |
 | `idMensagemMeta` | string | ID retornado pela API Meta |
-| `enviadoEm` | date | Data do envio |
+| `enviadoEm` | string | Data do envio |
 
 ## Regras
 
@@ -72,8 +72,8 @@ Nomes de tabelas em português, sem acentos, e nomes de campos em `camelCase`. A
 4. Nunca considerar cupom sem regras confirmadas como desconto efetivo. Para o MVP, condições e cupons podem permanecer em `condicoesJson`; criar tabela própria quando necessário.
 5. Manter observações suficientes para reconstruir o histórico. Não confundir valores vazios com zero.
 6. Em migrações futuras, conferir contagens, IDs, datas, referências, preços, exportação completa e ausência de duplicatas antes de desativar as tabelas.
-7. Realizar backup da instalação n8n e exportações periódicas. CSV nativo pode não usar `;` e UTF-8 com BOM: converter em fluxo específico se necessário.
-8. Avaliar o limite efetivo de armazenamento no ambiente da cliente; não pressupor capacidade ilimitada.
+7. Armazenar todas as datas de negócio em formato UTC ISO 8601 canônico (ex.: `2026-11-12T14:30:00.000Z`), com precisão consistente. Datas de sistema (`createdAt`, `updatedAt`) não substituem `coletadoEm` para auditoria. Houve relato de diferença de +3 horas na exportação da coluna `date` do teste local, ainda sem comparação numérica anexada; o problema precisa de reprodução e validação separadas.\n8. Realizar backup da instalação n8n e exportações periódicas. CSV nativo pode não usar `;` e UTF-8 com BOM: converter em fluxo específico se necessário.
+9. Avaliar o limite efetivo de armazenamento no ambiente da cliente; não pressupor capacidade ilimitada.
 
 ## Próximo teste local autorizado
 
