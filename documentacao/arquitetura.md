@@ -2,43 +2,39 @@
 
 ## Objetivo
 
-A cliente executará o n8n no próprio computador, priorizando fluxos visuais e a possibilidade de acompanhar cada execução. Scripts e serviços auxiliares serão usados somente quando houver uma necessidade técnica concreta.
+A cliente executará o n8n instalado globalmente via npm no Windows, na versão 2.47.3, priorizando fluxos visuais e acompanhamento das execuções. Scripts e serviços auxiliares entram somente onde o editor não atender à necessidade.
 
 ## Etapas do processo
 
 | Fluxo visual | Responsabilidade | Solução inicial |
 | --- | --- | --- |
-| F01 - Descobrir Ofertas | Consultar APIs e fontes autorizadas, limitar consultas e paginar resultados | Nós HTTP Request, Loop Over Items e Wait do n8n |
-| F02 - Guardar Histórico | Normalizar e persistir observações de preços | n8n e integração controlada com SQLite |
-| F03 - Avaliar Ofertas | Calcular pontuação explicável, ordenar e selecionar duas ou três candidatas | Regras visuais e critérios auditáveis |
-| F04 - Revisar e Gerar Link | Conferir produto, vendedor, condições e link de afiliado; aprovar ou rejeitar | Etapa humana registrada no banco |
-| F05 - Montar Mensagem | Preparar imagem, texto, preço, condições e identificação de publicidade | Modelo de mensagem no n8n com prévia |
-| F06 - Enviar ao Operador | Enviar à pessoa responsável pelo WhatsApp e registrar o retorno da Meta | API oficial; encaminhamento manual ao grupo |
+| F01 - Descobrir Ofertas | Consultar APIs e fontes autorizadas, limitar consultas e paginar resultados | Nós HTTP Request, Loop Over Items e Wait |
+| F02 - Guardar Histórico | Normalizar e persistir observações | Nó nativo Data Table e quatro tabelas do projeto |
+| F03 - Avaliar Ofertas | Calcular pontuação explicável e selecionar duas ou três oportunidades | Regras visuais do n8n |
+| F04 - Revisar e Gerar Link | Conferir produto, condições e link comissionável | Etapa humana registrada nas Data Tables |
+| F05 - Montar Mensagem | Preparar imagem, texto e identificação publicitária | Modelo visual e prévia no n8n |
+| F06 - Enviar ao Operador | Enviar via Meta API e acompanhar status; encaminhamento manual ao grupo | Nó HTTP Request e webhook |
 
-**Nenhum fluxo executável está incluído nesta estrutura inicial.** Primeiro é necessário identificar a versão e a instalação do n8n.
+**Situação:** a versão e os recursos locais do n8n foram inspecionados, mas não existem fluxos operacionais nem tabelas criadas até o momento.
 
-## Dados
+## Armazenamento: decisão para o MVP
 
-O banco do TomeOferta usa SQLite próprio, independente do banco interno do n8n. A primeira definição está em [esquema.sql](../banco/esquema.sql).
+Usar **Data Tables do n8n**, já identificadas na instalação: nó `n8n-nodes-base.dataTable` v1.1, criação, consulta, atualização e exportação CSV disponíveis. Sem nós SQLite comunitários e sem serviço auxiliar nesta etapa.
 
-- `produtos`: identificação normalizada do item.
-- `anuncios`: ofertas de vendedores e marketplaces específicos.
-- `observacoes_preco`: histórico imutável de preço, horário, fonte e condições de compra.
-- `cupons`: regras, datas e situação de verificação de cupons.
-- `ofertas_candidatas`: pontuação, justificativas e aprovação humana.
-- `publicacoes`: conteúdo aprovado e estado de envio.
+As quatro tabelas propostas são `produtos`, `historicoPrecos`, `ofertasCandidatas` e `publicacoes`. Consulte [modeloDadosN8n.md](modeloDadosN8n.md) para campos, tipos, regras e plano de migração.
 
-O preço anterior divulgado pelo marketplace não comprova desconto histórico. Na ausência de observações suficientes, a avaliação deve registrar **histórico insuficiente**, não afirmar que houve redução.
+O arquivo [banco/esquema.sql](../banco/esquema.sql) é uma **referência futura** para migração a SQLite; não descreve um banco existente nem deve ser executado no MVP. Não confundir as Data Tables com um banco SQLite externo ou com o banco interno gerenciado pela instalação.
 
-A comparação de produtos precisa considerar variante, capacidade, cor, tamanho, volume, procedência e condição. Uma LLM futura pode auxiliar na correspondência ambígua, mas não deve substituir validações objetivas.
+## Qualidade das ofertas
 
-## Cuidados operacionais
+O preço anterior divulgado pelo marketplace não comprova desconto histórico. Na ausência de observações suficientes, registrar **histórico insuficiente**. A comparação entre produtos considera marca, modelo e variação (capacidade, cor, tamanho, volume, procedência e condição). Uma IA futura pode auxiliar casos ambíguos, mas não substituir verificações objetivas.
 
-- O computador da cliente precisa estar ligado, com o n8n em execução, para tarefas programadas.
-- Realizar cópias de segurança do SQLite fora do Git e testar a restauração.
-- Guardar credenciais do Mercado Livre, Meta, chaves do n8n e outros segredos fora do repositório.
-- Verificar se há um nó SQLite apropriado na instalação. Caso contrário, avaliar um pequeno serviço local autenticado; não presumir disponibilidade do nó Execute Command.
-- Registrar erros, controlar o ritmo das consultas e respeitar os termos das plataformas.
-- A aceitação de uma mensagem pela API Meta não significa que ela foi entregue; acompanhar retornos por webhook.
-- Verificar janela de atendimento de 24 horas e modelos de mensagem aprovados quando aplicável.
-- Não disparar diretamente para grupos. A pessoa responsável recebe e encaminha manualmente, depois de aprovar a oferta e o link comissionável.
+## Operação e segurança
+
+- O PC precisa permanecer ligado e o n8n em execução durante tarefas agendadas.
+- Proteger credenciais e a chave de criptografia do n8n; manter backups fora do Git.
+- Fazer exportações periódicas de dados com validação de integridade; a interface de exportação foi identificada, mas ainda não testada com registros.
+- Controlar taxa de consulta, erros e limites de armazenamento; respeitar regras das plataformas.
+- O ID de mensagem aceito pela Meta não prova entrega: acompanhar status por webhook.
+- Respeitar janela de atendimento WhatsApp e exigências de templates aprovados.
+- Enviar somente ao operador após validação humana do link afiliado; grupo recebe encaminhamento manual.
