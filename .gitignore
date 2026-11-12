@@ -1,0 +1,24 @@
+# Private configuration and tokens
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+ml_tokens.json
+.n8n/
+n8n_data/
+# Runtime data and SQLite
+data/*
+!data/.gitkeep
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+# Python and output
+__pycache__/
+.venv/
+.pytest_cache/
+logs/
+output/
+*.log
