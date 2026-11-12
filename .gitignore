@@ -1,4 +1,4 @@
-# Private configuration and tokens
+# Configuracoes privadas e credenciais
 .env
 .env.*
 !.env.example
@@ -7,7 +7,10 @@
 ml_tokens.json
 .n8n/
 n8n_data/
-# Runtime data and SQLite
+
+# Dados de execucao e bancos SQLite (estrutura sem dados)
+dados/*
+!dados/.gitkeep
 data/*
 !data/.gitkeep
 *.sqlite
@@ -15,10 +18,16 @@ data/*
 *.sqlite3-*
 *.db
 *.db-*
-# Python and output
+*.bak
+
+# Python, registros e arquivos gerados
 __pycache__/
 .venv/
 .pytest_cache/
 logs/
+registros/
+saida/
 output/
 *.log
+.DS_Store
+Thumbs.db
