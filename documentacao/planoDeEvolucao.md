@@ -8,8 +8,8 @@
 - [x] Confirmar n8n 2.47.3 instalado via npm e MCP autenticado.
 - [x] Confirmar Data Tables v1.1 e importação/exportação CSV na interface.
 - [x] Adotar Data Tables como persistência do MVP.
-- [ ] Testar criação, leitura, atualização e exportação com dados fictícios.
-- [ ] Definir rotina de backup e restauração da instância.
+- [x] Testar criação, leitura, atualização e exportação com dados fictícios (tabela temporária `testePersistencia`; exportação CSV com vírgula e BOM).\n- [ ] Reproduzir e diagnosticar divergência de fuso na coluna `date`; usar `string` ISO UTC para datas de negócio até validação.
+- [ ] Definir rotina de backup e restauração da instância.\n- [ ] Exportar/versionar ou descartar de forma controlada o workflow temporário `Afiliados` após documentação do teste.
 
 ## Etapa 1 — Descoberta e histórico
 
