@@ -2,7 +2,7 @@
 
 ## Decisão
 
-No MVP, usar **Data Tables nativas do n8n** para manter o projeto visual e sem pacotes comunitários. A instância local instalada via npm (n8n 2.47.3) confirmou o nó `n8n-nodes-base.dataTable` v1.1 e importação/exportação CSV pela interface. Ainda **não** foram feitos testes de gravação, leitura ou exportação real.
+No MVP, usar **Data Tables nativas do n8n** para manter o projeto visual e sem pacotes comunitários. A instância local instalada via npm (n8n 2.47.3) confirmou o nó `n8n-nodes-base.dataTable` v1.1 e importação/exportação CSV pela interface. O agente local confirmou testes de inserção, consulta, atualização e exportação CSV com dados fictícios em uma tabela temporária. O teste identificou divergência a investigar na exportação de coluna do tipo `date`, por isso datas de negócio permanecem como texto ISO UTC.
 
 As Data Tables fazem parte do armazenamento gerenciado pelo n8n. **Não** criar agora o banco SQLite do TomeOferta. O arquivo `banco/esquema.sql` fica guardado apenas como desenho futuro de migração, não como esquema implantado.
 
