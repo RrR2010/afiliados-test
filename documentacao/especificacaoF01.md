@@ -58,3 +58,17 @@ Se `original_price` e `shipping` estiverem ausentes, não atribuir automaticamen
 ## Condução do trabalho
 
 Esta especificação pode ser revisada sem acesso ao PC. A criação dos nós e o teste na instância local devem ser tarefas do agente. Não é necessário criar scripts Python para reproduzir a orquestração.
+
+
+## Estado das Data Tables no ambiente local
+
+Em 12 de novembro de 2026, o agente local confirmou que as quatro Data Tables foram criadas e testadas com dados fictícios. Identificadores da instância (referência operacional, **não portáveis para outros ambientes**):
+
+| Tabela | ID local |
+| --- | --- |
+| `produtos` | `ObzUTIbHK3OmOatY` |
+| `historicoPrecos` | `6pg0hW5nQQsgyzhD` |
+| `ofertasCandidatas` | `ygU6Y1nOD2mVV5rI` |
+| `publicacoes` | `CRuVaS3CcAmEajVd` |
+
+A inserção, leitura e atualização foram confirmadas pelo agente, sem executar automações reais. O n8n acrescentou `id`, `createdAt` e `updatedAt`. Os dados de teste deverão ser identificados e removidos de modo controlado antes de gerar histórico real. O workflow experimental `Afiliados` e a tabela `testePersistencia` permanecem separados. A exportação CSV não foi repetida nessa etapa.
