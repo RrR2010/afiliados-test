@@ -1,0 +1,33 @@
+# Configuracoes privadas e credenciais
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+ml_tokens.json
+.n8n/
+n8n_data/
+
+# Dados de execucao e bancos SQLite (estrutura sem dados)
+dados/*
+!dados/.gitkeep
+data/*
+!data/.gitkeep
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.bak
+
+# Python, registros e arquivos gerados
+__pycache__/
+.venv/
+.pytest_cache/
+logs/
+registros/
+saida/
+output/
+*.log
+.DS_Store
+Thumbs.db
