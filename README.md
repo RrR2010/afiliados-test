@@ -1,37 +1,38 @@
 # TomeOferta
 
-Sistema de descoberta, histórico de preços e curadoria humana de ofertas com envio assistido pelo WhatsApp. **n8n local é o orquestrador visual**; código só entra onde o canvas não for suficiente.
+Sistema de descoberta, comparação, histórico de preços e curadoria de ofertas para divulgação assistida no WhatsApp. **O n8n local é o orquestrador visual**; scripts entram somente quando o editor não atender à necessidade.
 
-## Fluxo de negócio
+## Processo previsto
 
-1. **Descoberta:** APIs oficiais/feeds autorizados (começando por Mercado Livre).
-2. **Histórico:** persistência de observações de preço em SQLite próprio do projeto.
-3. **Ranking:** pontuação explicável, top 2–3 e inclusão/remoção manual.
-4. **Afiliados:** humana gera e valida o link comissionável antes de aprovar.
-5. **Template:** n8n prepara imagem, preço e texto para WhatsApp.
-6. **Envio:** Meta Cloud API manda para o número da operadora, que encaminha manualmente ao grupo opt-in.
+1. **Descobrir ofertas** em APIs oficiais ou fontes autorizadas, começando pelo Mercado Livre.
+2. **Guardar histórico** de anúncios e observações de preço no banco SQLite do TomeOferta.
+3. **Avaliar e selecionar** as duas ou três oportunidades mais interessantes com pontuação explicável e possibilidade de inclusão manual.
+4. **Revisar e gerar o link de afiliado** manualmente, até existir integração autorizada para automatizar a geração.
+5. **Montar a mensagem** com imagem, preço, condições, texto e indicação publicitária.
+6. **Enviar ao operador** via API oficial da Meta; o encaminhamento ao grupo de participantes é feito manualmente.
 
-A etapa de link afiliado é deliberadamente humana na primeira versão. Preço original anunciado não prova desconto real; preços e cupons devem ser verificados.
+O preço anterior informado pela loja não comprova um desconto real. Cupons e condições de compra também devem ser verificados.
 
-## Primeiros passos
+## Instalação inicial
 
-1. Clone: `git clone https://github.com/RrR2010/afiliados-test.git`
-2. Copie `.env.example` para `.env` (`Copy-Item .env.example .env` no PowerShell).
-3. Preencha os campos necessários. Guarde tokens no **n8n Credentials** quando possível; nunca em Git. Este arquivo `.env` **não é carregado automaticamente pelo n8n**.
-4. Confirme como o n8n foi instalado (Docker, npm, serviço etc.) antes de escolher a integração SQLite.
-5. Crie os workflows visualmente; exporte JSON sem segredos para `workflows/` e abra PR para revisão.
+1. Clonar o repositório: `git clone https://github.com/RrR2010/afiliados-test.git`.
+2. No PowerShell, copiar `.env.example` para `.env` com `Copy-Item .env.example .env`.
+3. Preencher apenas as variáveis necessárias. Configurar tokens e segredos preferencialmente nas **Credenciais** do n8n; nunca enviá-los ao Git. O n8n **não carrega automaticamente** o `.env` desta pasta.
+4. Identificar a versão e o método de instalação do n8n (Docker, npm ou outro) antes de definir a comunicação com SQLite.
+5. Criar e testar os fluxos visualmente. Exportar versões revisadas em JSON, sem dados pessoais ou segredos, para a pasta `fluxos/`.
 
-## Documentação
+## Estrutura
 
-- [Arquitetura](docs/architecture.md)
-- [Versionamento de workflows e n8n](docs/n8n-versioning.md)
-- [Roadmap](docs/roadmap.md)
-- [Regras para agentes locais](AGENTS.md)
-- [Schema SQLite inicial](db/schema.sql)
-- [Workflows planejados](workflows/README.md)
+- [Convenções de nomenclatura](documentacao/convencoes.md)
+- [Arquitetura e etapas](documentacao/arquitetura.md)
+- [Versionamento do n8n](documentacao/versionamentoN8n.md)
+- [Plano de evolução](documentacao/planoDeEvolucao.md)
+- [Orientações aos agentes](AGENTS.md)
+- [Esquema SQLite inicial](banco/esquema.sql)
+- [Fluxos planejados](fluxos/README.md)
 
-## Estado atual
+## Situação atual
 
-**Fundação de arquitetura apenas.** Este PR não instala nem executa workflows n8n, não cria o arquivo SQLite em produção e não envia mensagens. A integração deverá ser implementada e validada passo a passo.
+**Somente estrutura inicial e documentação.** Ainda não existem fluxos n8n executáveis, automações programadas ou envio de WhatsApp instalado por este repositório.
 
-**Fontes de verdade:** GitHub para arquivos/versionamento; n8n local para a edição visual e credenciais; SQLite do TomeOferta para os dados históricos (com backups fora do Git).
+**Fontes de verdade:** GitHub para definições versionadas; n8n local para execução e credenciais; SQLite do TomeOferta para observações e histórico, com cópias de segurança externas ao Git.
