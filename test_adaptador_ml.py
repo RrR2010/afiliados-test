@@ -128,6 +128,16 @@ class TesteAdaptadorMercadoLivre(unittest.TestCase):
             self.assertEqual(transporte.contagem(URL_TOKEN), 1)
             self.assertEqual(len([x for x in transporte.chamadas if x[0] == "GET"]), 2)
 
+    def test_segundo_401_apos_renovacao_nao_faz_nova_tentativa_oauth(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            transporte = TransporteSimulado(api_statuses=[401, 401])
+            cliente, _ = self.cliente_real(Path(pasta) / "tokens.json", transporte)
+            with self.assertRaises(ErroAdaptador) as contexto:
+                cliente.buscar_catalogo("fone", 2, 0)
+            self.assertEqual(contexto.exception.status, 401)
+            self.assertEqual(transporte.contagem(URL_TOKEN), 1)
+            self.assertEqual(len([x for x in transporte.chamadas if x[0] == "GET"]), 2)
+
     def test_invalid_grant_nao_faz_retry_infinito(self):
         with tempfile.TemporaryDirectory() as pasta:
             transporte = TransporteSimulado(refresh_status=400, refresh_payload={"error": "invalid_grant"})
@@ -150,15 +160,27 @@ class TesteAdaptadorMercadoLivre(unittest.TestCase):
         with tempfile.TemporaryDirectory() as pasta:
             caminho = Path(pasta) / "tokens.json"
             transporte = TransporteSimulado(atraso_renovacao=0.08)
-            clientes = [self.cliente_real(caminho, transporte, expirado=True)[0] for _ in range(2)]
+            armazenamento_inicial = ArmazenamentoToken(caminho)
+            armazenamento_inicial.gravar_atomico({"app_id": "app-ficticio", "access_token": "access-antigo", "refresh_token": "refresh-antigo", "expires_at": time.time() - 1})
+            clientes = [ClienteMercadoLivre(False, ArmazenamentoToken(caminho), "app-ficticio", "segredo-ficticio", transporte) for _ in range(2)]
             resultados = []
-            threads = [threading.Thread(target=lambda c: resultados.append(c.buscar_catalogo("fone", 2, 0)), args=(cliente,)) for cliente in clientes]
+            erros = []
+
+            def consultar(cliente):
+                try:
+                    resultados.append(cliente.buscar_catalogo("fone", 2, 0))
+                except Exception as erro:  # capturar falhas da thread para a asserção principal
+                    erros.append(erro)
+
+            threads = [threading.Thread(target=consultar, args=(cliente,)) for cliente in clientes]
             for thread in threads:
                 thread.start()
             for thread in threads:
                 thread.join(timeout=2)
             self.assertEqual(len(resultados), 2)
+            self.assertEqual(erros, [])
             self.assertEqual(transporte.contagem(URL_TOKEN), 1)
+            self.assertEqual(ArmazenamentoToken(caminho).ler()["refresh_token"], "refresh-novo")
 
     @staticmethod
     def cliente_real(caminho, transporte, expirado=False):
