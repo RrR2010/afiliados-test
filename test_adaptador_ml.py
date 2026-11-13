@@ -1,13 +1,14 @@
 import json
-import os
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from adaptador_ml import Configuracao, ServidorAdaptador
+from adaptador_ml import ArmazenamentoToken, ClienteMercadoLivre, Configuracao, ErroAdaptador, ServidorAdaptador, URL_TOKEN
 
 
 class TesteAdaptadorMercadoLivre(unittest.TestCase):
@@ -47,6 +48,13 @@ class TesteAdaptadorMercadoLivre(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual([item["item_id"] for item in corpo["results"]], ["MLB-ANUNCIO-1", "MLB-ANUNCIO-2"])
 
+    def test_simulador_respeita_deslocamento_e_limite(self):
+        status, corpo = self.requisicao("/catalogo?q=fone&limite=1&deslocamento=1")
+        self.assertEqual(status, 200)
+        self.assertEqual(corpo["paging"]["limit"], 1)
+        self.assertEqual(corpo["paging"]["offset"], 1)
+        self.assertEqual([item["id"] for item in corpo["results"]], ["MLB-FAKE-2"])
+
     def test_404_ficticio(self):
         status, corpo = self.requisicao("/catalogo?q=produto-404")
         self.assertEqual(status, 404)
@@ -68,12 +76,118 @@ class TesteAdaptadorMercadoLivre(unittest.TestCase):
     def test_persistencia_atomica_e_bloqueio_sem_expor_token(self):
         with tempfile.TemporaryDirectory() as pasta:
             caminho = Path(pasta) / "tokens.json"
-            from adaptador_ml import ArmazenamentoToken
-
             armazenamento = ArmazenamentoToken(caminho)
-            armazenamento.gravar_atomico({"refresh_token": "ficticio", "access_token": "ficticio"})
+            armazenamento.gravar_atomico({"app_id": "app-ficticio", "refresh_token": "ficticio", "access_token": "ficticio", "expires_at": time.time() + 3600})
             self.assertEqual(armazenamento.ler()["refresh_token"], "ficticio")
             self.assertFalse(caminho.with_suffix(".json.lock").exists())
+
+    def test_cache_incompativel_nao_e_sobrescrito(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = Path(pasta) / "tokens.json"
+            conteudo = '{"access_token":"antigo"}'
+            caminho.write_text(conteudo, encoding="utf-8")
+            armazenamento = ArmazenamentoToken(caminho)
+            with self.assertRaises(ErroAdaptador) as contexto:
+                armazenamento.ler()
+            self.assertEqual(contexto.exception.status, 503)
+            self.assertEqual(caminho.read_text(encoding="utf-8"), conteudo)
+
+    def test_rotas_reais_usam_products_search_e_items(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            transporte = TransporteSimulado()
+            cliente, armazenamento = self.cliente_real(Path(pasta) / "tokens.json", transporte)
+            cliente.buscar_catalogo("fone", 7, 14)
+            cliente.buscar_anuncios("MLB123")
+            chamadas = [chamada for chamada in transporte.chamadas if chamada[0] == "GET"]
+            consulta = parse_qs(urlparse(chamadas[0][1]).query)
+            self.assertEqual(urlparse(chamadas[0][1]).path, "/products/search")
+            self.assertEqual(consulta["status"], ["active"])
+            self.assertEqual(consulta["site_id"], ["MLB"])
+            self.assertEqual(consulta["q"], ["fone"])
+            self.assertEqual(consulta["limit"], ["7"])
+            self.assertEqual(consulta["offset"], ["14"])
+            self.assertEqual(urlparse(chamadas[1][1]).path, "/products/MLB123/items")
+            self.assertEqual(armazenamento.ler()["app_id"], "app-ficticio")
+
+    def test_token_expirado_renova_por_oauth_e_substitui_refresh(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            transporte = TransporteSimulado()
+            cliente, armazenamento = self.cliente_real(Path(pasta) / "tokens.json", transporte, expirado=True)
+            cliente.buscar_catalogo("fone", 2, 0)
+            self.assertEqual(transporte.contagem(URL_TOKEN), 1)
+            cache = armazenamento.ler()
+            self.assertEqual(cache["access_token"], "access-novo")
+            self.assertEqual(cache["refresh_token"], "refresh-novo")
+            self.assertEqual(cache["app_id"], "app-ficticio")
+
+    def test_401_renova_uma_vez_e_reenvia_sem_loop(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            transporte = TransporteSimulado(api_statuses=[401, 200])
+            cliente, _ = self.cliente_real(Path(pasta) / "tokens.json", transporte)
+            self.assertEqual(cliente.buscar_catalogo("fone", 2, 0)["ok"], True)
+            self.assertEqual(transporte.contagem(URL_TOKEN), 1)
+            self.assertEqual(len([x for x in transporte.chamadas if x[0] == "GET"]), 2)
+
+    def test_invalid_grant_nao_faz_retry_infinito(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            transporte = TransporteSimulado(refresh_status=400, refresh_payload={"error": "invalid_grant"})
+            cliente, _ = self.cliente_real(Path(pasta) / "tokens.json", transporte, expirado=True)
+            with self.assertRaisesRegex(ErroAdaptador, "renovação rejeitada") as contexto:
+                cliente.buscar_catalogo("fone", 2, 0)
+            self.assertEqual(contexto.exception.status, 401)
+            self.assertEqual(transporte.contagem(URL_TOKEN), 1)
+
+    def test_403_404_e_429_sao_preservados(self):
+        for status in (403, 404, 429):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as pasta:
+                transporte = TransporteSimulado(api_statuses=[status])
+                cliente, _ = self.cliente_real(Path(pasta) / "tokens.json", transporte)
+                with self.assertRaises(ErroAdaptador) as contexto:
+                    cliente.buscar_catalogo("fone", 2, 0)
+                self.assertEqual(contexto.exception.status, status)
+
+    def test_renovacao_concorrente_faz_uma_so_troca(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = Path(pasta) / "tokens.json"
+            transporte = TransporteSimulado(atraso_renovacao=0.08)
+            clientes = [self.cliente_real(caminho, transporte, expirado=True)[0] for _ in range(2)]
+            resultados = []
+            threads = [threading.Thread(target=lambda c: resultados.append(c.buscar_catalogo("fone", 2, 0)), args=(cliente,)) for cliente in clientes]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=2)
+            self.assertEqual(len(resultados), 2)
+            self.assertEqual(transporte.contagem(URL_TOKEN), 1)
+
+    @staticmethod
+    def cliente_real(caminho, transporte, expirado=False):
+        armazenamento = ArmazenamentoToken(caminho)
+        armazenamento.gravar_atomico({"app_id": "app-ficticio", "access_token": "access-antigo", "refresh_token": "refresh-antigo", "expires_at": time.time() - 1 if expirado else time.time() + 3600})
+        return ClienteMercadoLivre(False, armazenamento, "app-ficticio", "segredo-ficticio", transporte), armazenamento
+
+
+class TransporteSimulado:
+    def __init__(self, api_statuses=None, refresh_status=200, refresh_payload=None, atraso_renovacao=0):
+        self.chamadas = []
+        self.api_statuses = list(api_statuses or [200])
+        self.refresh_status = refresh_status
+        self.refresh_payload = refresh_payload or {"access_token": "access-novo", "refresh_token": "refresh-novo", "expires_in": 3600}
+        self.atraso_renovacao = atraso_renovacao
+        self._lock = threading.Lock()
+
+    def __call__(self, metodo, url, cabecalhos, corpo):
+        with self._lock:
+            self.chamadas.append((metodo, url, cabecalhos, corpo))
+        if url == URL_TOKEN:
+            if self.atraso_renovacao:
+                time.sleep(self.atraso_renovacao)
+            return self.refresh_status, self.refresh_payload
+        status = self.api_statuses.pop(0) if self.api_statuses else 200
+        return status, {"ok": True}
+
+    def contagem(self, url):
+        return sum(1 for _, chamada, _, _ in self.chamadas if chamada == url)
 
 
 if __name__ == "__main__":

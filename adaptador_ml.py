@@ -16,19 +16,21 @@ import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
-from urllib.error import HTTPError, URLError
+from typing import Any, Callable
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
-VERSAO = "0.1.0"
+VERSAO = "0.2.0"
 ENDERECO_PADRAO = "127.0.0.1"
 PORTA_PADRAO = 5688
 CHAVE_CABECALHO = "X-Adaptador-Chave"
 PADRAO_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 DOMINIO_API = "api.mercadolibre.com"
-DOMINIO_AUTORIZACAO = "auth.mercadolivre.com.br"
+DOMINIO_AUTORIZACAO = "api.mercadolibre.com"
+URL_TOKEN = f"https://{DOMINIO_AUTORIZACAO}/oauth/token"
+Transporte = Callable[[str, str, dict[str, str], bytes | None], tuple[int, Any]]
 
 
 class ErroAdaptador(Exception):
@@ -85,7 +87,9 @@ class BloqueioArquivo:
 
 
 class ArmazenamentoToken:
-    """Persistência local atômica de tokens, nunca exposta pela API."""
+    """Cache atômico compatível com o formato usado por ``ml_auth.py``."""
+
+    CAMPOS_OBRIGATORIOS = {"app_id", "access_token", "refresh_token", "expires_at"}
 
     def __init__(self, caminho: Path) -> None:
         self.caminho = caminho
@@ -98,11 +102,13 @@ class ArmazenamentoToken:
             return {}
         except (OSError, json.JSONDecodeError) as exc:
             raise ErroAdaptador(503, "armazenamento_token", "estado de autenticação indisponível") from exc
-        if not isinstance(dados, dict):
-            raise ErroAdaptador(503, "armazenamento_token", "estado de autenticação inválido")
+        if not isinstance(dados, dict) or not self._formato_valido(dados):
+            raise ErroAdaptador(503, "armazenamento_token", "formato de autenticação incompatível")
         return dados
 
     def gravar_atomico(self, dados: dict[str, Any]) -> None:
+        if not self._formato_valido(dados):
+            raise ErroAdaptador(502, "resposta_token", "resposta de autenticação incompatível")
         self.caminho.parent.mkdir(parents=True, exist_ok=True)
         fd, temporario = tempfile.mkstemp(prefix=self.caminho.name + ".", dir=self.caminho.parent)
         try:
@@ -117,13 +123,44 @@ class ArmazenamentoToken:
             except FileNotFoundError:
                 pass
 
+    @classmethod
+    def _formato_valido(cls, dados: dict[str, Any]) -> bool:
+        return (
+            cls.CAMPOS_OBRIGATORIOS.issubset(dados)
+            and all(isinstance(dados[campo], str) and bool(dados[campo]) for campo in ("app_id", "access_token", "refresh_token"))
+            and isinstance(dados["expires_at"], (int, float))
+        )
+
+
+def transporte_urllib(metodo: str, url: str, cabecalhos: dict[str, str], corpo: bytes | None = None) -> tuple[int, Any]:
+    """Transporte real isolado para permitir testes sem rede."""
+    requisicao = Request(url, data=corpo, headers=cabecalhos, method=metodo)
+    try:
+        with urlopen(requisicao, timeout=15) as resposta:
+            return resposta.status, _ler_json(resposta.read())
+    except HTTPError as exc:
+        return exc.code, _ler_json(exc.read())
+    except OSError as exc:
+        raise ErroAdaptador(502, "falha_upstream", "serviço externo indisponível") from exc
+
+
+def _ler_json(conteudo: bytes) -> Any:
+    try:
+        return json.loads(conteudo.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+
 
 class ClienteMercadoLivre:
-    """Cliente com host e caminhos fixos; não aceita URL fornecida pelo usuário."""
+    """Cliente com rotas fixas, renovação única e refresh rotativo."""
 
-    def __init__(self, ficticio: bool = True, armazenamento: ArmazenamentoToken | None = None) -> None:
+    def __init__(self, ficticio: bool = True, armazenamento: ArmazenamentoToken | None = None, app_id: str | None = None, client_secret: str | None = None, transporte: Transporte | None = None, relogio: Callable[[], float] = time.time) -> None:
         self.ficticio = ficticio
         self.armazenamento = armazenamento
+        self.app_id = app_id
+        self.client_secret = client_secret
+        self.transporte = transporte or transporte_urllib
+        self.relogio = relogio
 
     def buscar_catalogo(self, consulta: str, limite: int, deslocamento: int) -> dict[str, Any]:
         self._validar_consulta(consulta)
@@ -133,9 +170,13 @@ class ClienteMercadoLivre:
                 raise RespostaFicticia(404, "sem_resultados", "nenhum produto encontrado")
             if consulta == "produto-429":
                 raise RespostaFicticia(429, "limite_upstream", "limite fictício atingido")
-            produtos = [{"id": "MLB-FAKE-1", "titulo": "Produto fictício 1"}, {"id": "MLB-FAKE-2", "titulo": "Produto fictício 2"}]
-            return {"site_id": "MLB", "consulta": consulta, "paging": {"limit": limite, "offset": deslocamento}, "results": produtos[:limite]}
-        return self._requisitar("/sites/MLB/search", {"q": consulta, "limit": limite, "offset": deslocamento})
+            produtos = [
+                {"id": "MLB-FAKE-1", "titulo": "Produto fictício 1"},
+                {"id": "MLB-FAKE-2", "titulo": "Produto fictício 2"},
+                {"id": "MLB-FAKE-3", "titulo": "Produto fictício 3"},
+            ]
+            return {"site_id": "MLB", "consulta": consulta, "status": "active", "paging": {"limit": limite, "offset": deslocamento, "total": len(produtos)}, "results": produtos[deslocamento:deslocamento + limite]}
+        return self._requisitar("/products/search", {"status": "active", "site_id": "MLB", "q": consulta, "limit": limite, "offset": deslocamento})
 
     def buscar_anuncios(self, id_produto: str) -> dict[str, Any]:
         self._validar_id(id_produto, "idProduto")
@@ -146,42 +187,70 @@ class ClienteMercadoLivre:
                 raise RespostaFicticia(429, "limite_upstream", "limite fictício atingido")
             anuncios = [{"item_id": "MLB-ANUNCIO-1", "price": 129.90}, {"item_id": "MLB-ANUNCIO-2", "price": 149.90}]
             return {"idProduto": id_produto, "results": anuncios}
-        return self._requisitar(f"/products/{id_produto}", {})
-
-    def renovar_token(self, dados: dict[str, Any], requisitar: Any) -> dict[str, Any]:
-        """Renova sob bloqueio e grava somente a resposta válida de forma atômica."""
-        if self.armazenamento is None:
-            raise ErroAdaptador(503, "armazenamento_token", "renovação não configurada")
-        with self.armazenamento.bloqueio:
-            atual = self.armazenamento.ler()
-            if atual.get("refresh_token") != dados.get("refresh_token"):
-                return atual
-            try:
-                novo = requisitar(dados["refresh_token"])
-                if not isinstance(novo, dict) or not novo.get("access_token"):
-                    raise ValueError("resposta sem access_token")
-                self.armazenamento.gravar_atomico(novo)
-                return novo
-            except Exception as exc:
-                raise ErroAdaptador(502, "renovacao_falhou", "não foi possível renovar a autorização") from exc
+        return self._requisitar(f"/products/{id_produto}/items", {})
 
     def _requisitar(self, caminho: str, parametros: dict[str, Any]) -> dict[str, Any]:
         if not caminho.startswith("/") or "//" in caminho or ".." in caminho:
             raise ErroAdaptador(400, "rota_invalida", "rota upstream não permitida")
-        token = self.armazenamento.ler().get("access_token") if self.armazenamento else None
-        if not token:
+        token = self._obter_access_token()
+        resposta = self._chamar_api(caminho, parametros, token)
+        if resposta[0] == 401:
+            token = self._renovar_token(forcar=True, token_rejeitado=token)
+            resposta = self._chamar_api(caminho, parametros, token)
+        return self._interpretar_api(resposta)
+
+    def _chamar_api(self, caminho: str, parametros: dict[str, Any], token: str) -> tuple[int, Any]:
+        url = f"https://{DOMINIO_API}{caminho}"
+        if parametros:
+            url += "?" + urlencode(parametros)
+        return self.transporte("GET", url, {"Authorization": f"Bearer {token}", "Accept": "application/json"}, None)
+
+    def _obter_access_token(self) -> str:
+        if self.armazenamento is None:
             raise ErroAdaptador(503, "autenticacao_indisponivel", "autorização não configurada")
-        url = f"https://{DOMINIO_API}{caminho}?{urlencode(parametros)}" if parametros else f"https://{DOMINIO_API}{caminho}"
-        requisicao = Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
-        try:
-            with urlopen(requisicao, timeout=15) as resposta:
-                return json.loads(resposta.read().decode("utf-8"))
-        except HTTPError as exc:
-            if exc.code in (404, 429):
-                raise ErroAdaptador(exc.code, "resposta_upstream", "resposta do serviço externo") from exc
-            raise ErroAdaptador(502, "falha_upstream", "serviço externo indisponível") from exc
-        except (OSError, ValueError) as exc:
-            raise ErroAdaptador(502, "falha_upstream", "serviço externo indisponível") from exc
+        dados = self.armazenamento.ler()
+        self._validar_app_id(dados)
+        if float(dados["expires_at"]) > self.relogio() + 120:
+            return str(dados["access_token"])
+        return self._renovar_token()
+
+    def _renovar_token(self, forcar: bool = False, token_rejeitado: str | None = None) -> str:
+        if self.armazenamento is None or not self.app_id or not self.client_secret:
+            raise ErroAdaptador(503, "autenticacao_indisponivel", "renovação não configurada")
+        with self.armazenamento.bloqueio:
+            atual = self.armazenamento.ler()
+            self._validar_app_id(atual)
+            if token_rejeitado and atual["access_token"] != token_rejeitado:
+                return str(atual["access_token"])
+            if not forcar and float(atual["expires_at"]) > self.relogio() + 120:
+                return str(atual["access_token"])
+            corpo = urlencode({"grant_type": "refresh_token", "client_id": self.app_id, "client_secret": self.client_secret, "refresh_token": atual["refresh_token"]}).encode("utf-8")
+            status, resposta = self.transporte("POST", URL_TOKEN, {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}, corpo)
+            if status != 200:
+                if status == 400 and isinstance(resposta, dict) and resposta.get("error") == "invalid_grant":
+                    raise ErroAdaptador(401, "refresh_token_invalido", "renovação rejeitada")
+                if status == 429:
+                    raise ErroAdaptador(429, "limite_upstream", "limite de renovação atingido")
+                raise ErroAdaptador(502, "renovacao_falhou", "não foi possível renovar a autorização")
+            if not isinstance(resposta, dict) or not resposta.get("access_token") or not resposta.get("refresh_token"):
+                raise ErroAdaptador(502, "resposta_token", "resposta de renovação incompleta")
+            novo = {"app_id": self.app_id, "access_token": str(resposta["access_token"]), "refresh_token": str(resposta["refresh_token"]), "expires_at": self.relogio() + int(resposta.get("expires_in", 21600))}
+            self.armazenamento.gravar_atomico(novo)
+            return novo["access_token"]
+
+    def _validar_app_id(self, dados: dict[str, Any]) -> None:
+        if self.app_id and dados.get("app_id") != self.app_id:
+            raise ErroAdaptador(503, "armazenamento_token", "cache de autenticação incompatível")
+
+    @staticmethod
+    def _interpretar_api(resposta: tuple[int, Any]) -> dict[str, Any]:
+        status, payload = resposta
+        if status == 200:
+            return payload if isinstance(payload, dict) else {"resultado": payload}
+        if status in (401, 403, 404, 429):
+            codigo = {401: "nao_autorizado", 403: "acesso_negado", 404: "nao_encontrado", 429: "limite_upstream"}[status]
+            raise ErroAdaptador(status, codigo, "resposta do serviço externo")
+        raise ErroAdaptador(502, "falha_upstream", "serviço externo indisponível")
 
     @staticmethod
     def _validar_consulta(consulta: str) -> None:
@@ -206,6 +275,8 @@ class Configuracao:
     porta: int = PORTA_PADRAO
     ficticio: bool = True
     caminho_tokens: Path | None = None
+    app_id: str | None = None
+    client_secret: str | None = None
 
     @classmethod
     def ambiente(cls) -> "Configuracao":
@@ -216,7 +287,7 @@ class Configuracao:
         if not ficticio and not os.environ.get("ADAPTADOR_ML_ARMAZENAMENTO_TOKENS"):
             raise SystemExit("armazenamento de tokens não configurado")
         caminho = Path(os.environ["ADAPTADOR_ML_ARMAZENAMENTO_TOKENS"]) if os.environ.get("ADAPTADOR_ML_ARMAZENAMENTO_TOKENS") else None
-        return cls(chave=chave, endereco=ENDERECO_PADRAO, porta=int(os.environ.get("ADAPTADOR_ML_PORTA", PORTA_PADRAO)), ficticio=ficticio, caminho_tokens=caminho)
+        return cls(chave=chave, endereco=ENDERECO_PADRAO, porta=int(os.environ.get("ADAPTADOR_ML_PORTA", PORTA_PADRAO)), ficticio=ficticio, caminho_tokens=caminho, app_id=os.environ.get("ML_APP_ID"), client_secret=os.environ.get("ML_CLIENT_SECRET"))
 
 
 class ManipuladorHTTP(BaseHTTPRequestHandler):
@@ -280,7 +351,7 @@ class ServidorAdaptador(ThreadingHTTPServer):
     def __init__(self, configuracao: Configuracao) -> None:
         armazenamento = ArmazenamentoToken(configuracao.caminho_tokens) if configuracao.caminho_tokens else None
         self.configuracao = configuracao
-        self.cliente = ClienteMercadoLivre(configuracao.ficticio, armazenamento)
+        self.cliente = ClienteMercadoLivre(configuracao.ficticio, armazenamento, configuracao.app_id, configuracao.client_secret)
         super().__init__((configuracao.endereco, configuracao.porta), ManipuladorHTTP)
 
 

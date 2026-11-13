@@ -1,8 +1,9 @@
 # Adaptador local do Mercado Livre
 
 O `adaptador_ml.py` oferece uma ponte HTTP local para que o n8n consulte o
-Mercado Livre sem receber tokens OAuth. A primeira versão opera em modo
-fictício e não realiza chamadas externas.
+Mercado Livre sem receber tokens OAuth. O modo fictício é o padrão e não
+realiza chamadas externas; o cliente real e a renovação rotativa estão
+implementados, mas ainda exigem configuração e autorização explícitas.
 
 ## Contrato HTTP
 
@@ -19,6 +20,10 @@ Os casos fictícios `produto-404`, `MLB-FAKE-SEM-OFERTAS` e `MLB-FAKE-429`
 produzem, respectivamente, respostas `404` ou `429`. Parâmetros ausentes,
 IDs inválidos, rotas desconhecidas e URLs arbitrárias são rejeitados. O
 adaptador não aceita um parâmetro `url` e usa hosts/caminhos upstream fixos.
+
+No cliente real, `/catalogo` chama `GET https://api.mercadolibre.com/products/search`
+com `status=active`, `site_id=MLB`, `q`, `limit` e `offset`. `/anuncios` chama
+`GET https://api.mercadolibre.com/products/{idProduto}/items`.
 
 Respostas de erro têm somente `erro` e `mensagem` sanitizados. Tokens nunca
 fazem parte de resposta, log ou mensagem de erro.
@@ -38,17 +43,21 @@ O processo não é iniciado permanentemente por este projeto. Para parar,
 pressione `Ctrl+C`. A chave deve ser fornecida ao n8n por uma credencial de
 cabeçalho com nome `X-Adaptador-Chave`.
 
-## Autenticação real futura
+## Autenticação real
 
-O modo real permanece desativado. Quando aprovado, o serviço deverá receber
-somente a localização de um armazenamento protegido por
+O modo real não é ativado por padrão. Quando aprovado, o serviço deverá
+receber somente a localização de um armazenamento protegido por
 `ADAPTADOR_ML_ARMAZENAMENTO_TOKENS`; o arquivo não deve ser versionado. A
-renovação rotativa usa bloqueio exclusivo, relê o estado dentro do bloqueio e
-grava a resposta nova com arquivo temporário e `os.replace`. Falhas retornam
-mensagem genérica e não imprimem access token ou refresh token.
+renovação rotativa chama `POST https://api.mercadolibre.com/oauth/token`, usa
+bloqueio exclusivo, relê o estado dentro do bloqueio e grava a resposta nova
+com arquivo temporário e `os.replace`. O cache precisa manter o formato
+`app_id`, `access_token`, `refresh_token` e `expires_at`, compatível com
+`ml_auth.py`; formatos incompatíveis não são sobrescritos. `invalid_grant`
+retorna erro sem nova tentativa automática.
 
-As chamadas reais, quando autorizadas, terão host fixo
-`api.mercadolibre.com`, cabeçalho `Authorization` interno e timeout. Esta
+As chamadas reais usam host fixo `api.mercadolibre.com`, cabeçalho
+`Authorization` interno e timeout. Um único `401` da API provoca uma única
+renovação forçada e repetição; um segundo `401` é devolvido ao n8n. Esta
 entrega não configura credenciais, não acessa o DevCenter e não faz chamadas
 externas.
 
