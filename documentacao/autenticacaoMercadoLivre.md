@@ -120,3 +120,44 @@ Alternativa a estudar se não houver domínio: aproveitar o mecanismo HTTPS de c
 - Inspeção não destrutiva da configuração de escuta e do firewall para alcance na LAN, sem varredura de rede.
 - Teste isolado e reversível do efeito de `N8N_EDITOR_BASE_URL` sobre o OAuth Redirect URL, sem adicionar credenciais nem iniciar autenticação, somente se puder ser feito sem interromper a instância ativa; caso contrário, reportar pré-requisitos e pedir aprovação.
 - Nenhum serviço Cloudflare, DNS, DevCenter, token ou credencial deve ser alterado sem autorização explícita.
+
+
+## Decisão revisada — sem domínio próprio (13/11/2026)
+
+A pessoa responsável confirmou que não dispõe de domínio próprio e autorizou avaliar o uso do OAuth em Python já funcional. **Para o MVP, a recomendação passa a ser um adaptador HTTP local em Python com OAuth encapsulado, sem Cloudflare Tunnel.** O caminho de OAuth2 nativo do n8n permanece documentado como alternativa futura, não como implementação escolhida agora.
+
+### Limite entre visual e código
+
+O fluxo de negócio F01 continua no n8n, com nós visuais para configuração de buscas, paginação, loops, decisões, espera, normalização e consolidação. Somente a autenticação/renovação e as chamadas à API previamente permitidas ficam encapsuladas no adaptador Python, com contrato HTTP simples.
+
+```text
+n8n (HTTP Request, IF, Loop etc.)
+  -> 127.0.0.1:8765 (adaptador Python local)
+     -> GET /users/me (diagnóstico)
+     -> GET /products/search (busca por catálogo)
+     -> GET /products/{id}/items (anúncios)
+     -> OAuth Mercado Livre com refresh token rotativo
+```
+
+A porta 8765 é **exemplo**, não porta já configurada. A ligação ocorre apenas via loopback, sem túnel, DNS, proxy público ou callback n8n. O callback HTTPS do Python já usado anteriormente é preservado para reautorização humana caso necessária.
+
+### Requisitos de segurança e robustez
+
+1. Escutar **somente** em `127.0.0.1`, não em `0.0.0.0` / `::`; acesso pela instância local n8n no mesmo Windows. Verificar firewall/isolamento do próprio n8n separadamente.
+2. Expor **apenas rotas GET predefinidas** e validar `q`, `limit`, `offset`, IDs e demais parâmetros; jamais aceitar URL externa arbitrária nem endpoint genérico de proxy.
+3. Preferir chave local independente do Mercado Livre entre n8n e adaptador (guardada em credencial HTTP Header do n8n, não no JSON exportado). Não retornar `access_token`, `refresh_token`, client secret ou conteúdo sensível em respostas/logs.
+4. Credenciais ML e tokens pertencem **somente** ao adaptador local; persistir novos pares de tokens com escrita atômica e travamento para que duas requisições simultâneas não usem o mesmo refresh token. Uma única fonte de verdade: adaptar o `ml_auth.py` já existente; não deixar outra rotina atualizando o mesmo cache de tokens.
+5. Renovar token somente se necessário, conforme API, repetir uma única vez após 401 comprovadamente causado por expiração; `invalid_grant` bloqueia e exige nova autorização humana. Não fazer retry de autorização em loop.
+6. Respostas e status HTTP coerentes: `404` sem vencedores retornado como caso controlado e `429` como limite de taxa; erros 401/403 ou falhas de rede não podem virar `results: []` silenciosamente. Minimizar e higienizar erros, com contagens sem dados secretos.
+7. Testar primeiro as rotas do adaptador com respostas simuladas (sem chamadas externas), depois conectar o n8n com volume mínimo autorizado e sem gravação em Data Tables nem WhatsApp.
+8. Não iniciar serviço persistente no Windows nem criar tarefas agendadas sem aprovação. Documentar o procedimento de inicialização/parada; avaliar inicialização automática e healthcheck antes de agendar F01.
+9. Quando a proteção SSRF do n8n estiver ativa, verificar a necessidade de autorizar o loopback local de maneira **específica**, sem desabilitar a proteção global. Ver documentação n8n.
+10. Não incluir scripts locais, arquivos de token ou segredos em PR inadvertidamente; antes de versionar, revisar fontes e dependências.
+
+### Decisão de fase e critérios de aceite
+
+**Etapa 1 (agora):** implementar adaptador local pequeno, com endpoints falsos e testes sem ML real; preparar documentação e código revisável em PR próprio, mantendo F01 e PR #6 separados. **Etapa 2:** conectar o F01 visual aos endpoints locais e testar simulação fim-a-fim. **Etapa 3:** pessoa responsável confere o estado da autorização já existente e insere segredos/autoriza quando necessário; executar teste mínimo de catálogo e anúncios reais; validar token após expiração antes da execução diária.
+
+Este design elimina a necessidade de alterar `N8N_EDITOR_BASE_URL`, cadastrar o callback n8n ou contratar domínio para o MVP. É uma **recomendação de arquitetura** pendente de validação operacional, não integração já concluída.
+
+Fontes: https://developers.mercadolivre.com.br/autenticacao-e-autorizacao ; https://docs.n8n.io/hosting/securing/ssrf-protection
