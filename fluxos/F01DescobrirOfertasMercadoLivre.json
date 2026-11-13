@@ -1,0 +1,219 @@
+{
+  "name": "F01 - Descobrir Ofertas - Mercado Livre",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "f01-manual",
+      "name": "Início manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 260],
+      "parameters": {}
+    },
+    {
+      "id": "f01-parametros",
+      "name": "Configurar parâmetros da consulta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 260],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "termoBusca", "name": "termoBusca", "value": "produto fictício", "type": "string"},
+            {"id": "limiteProdutosEncontrados", "name": "limiteProdutosEncontrados", "value": 3, "type": "number"},
+            {"id": "limiteProdutosExaminados", "name": "limiteProdutosExaminados", "value": 2, "type": "number"},
+            {"id": "limitePaginas", "name": "limitePaginas", "value": 2, "type": "number"},
+            {"id": "limiteTentativas", "name": "limiteTentativas", "value": 2, "type": "number"},
+            {"id": "intervaloSegundos", "name": "intervaloSegundos", "value": 1, "type": "number"},
+            {"id": "modoTesteFicticio", "name": "modoTesteFicticio", "value": true, "type": "boolean"},
+            {"id": "paginaAtual", "name": "paginaAtual", "value": 0, "type": "number"},
+            {"id": "tentativaAtual", "name": "tentativaAtual", "value": 0, "type": "number"}
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f01-dados-ficticios",
+      "name": "Preparar dados fictícios",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [440, 260],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "produtos", "name": "produtos", "value": "=[{\"idProduto\":\"ML:TESTE001\",\"nomeProduto\":\"Produto fictício 1\",\"modoTesteFicticio\":true,\"intervaloSegundos\":1},{\"idProduto\":\"ML:TESTE002\",\"nomeProduto\":\"Produto fictício 2\",\"modoTesteFicticio\":true,\"intervaloSegundos\":1}]", "type": "json"}
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f01-separar-produtos",
+      "name": "Separar produtos encontrados",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [660, 260],
+      "parameters": {"fieldToSplitOut": "produtos", "include": "allOtherFields"}
+    },
+    {
+      "id": "f01-loop-produtos",
+      "name": "Percorrer produtos com limite",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [880, 260],
+      "parameters": {"batchSize": 1, "options": {}}
+    },
+    {
+      "id": "f01-if-teste",
+      "name": "Decidir dados fictícios ou API",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 260],
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2},
+          "conditions": [{"id": "modo-teste", "leftValue": "={{ true }}", "rightValue": true, "operator": {"type": "boolean", "operation": "equals"}}],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "f01-anuncio-ficticio",
+      "name": "Montar anúncio fictício",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1320, 120],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {"assignments": [
+          {"id": "idAnuncio", "name": "idAnuncio", "value": "ML:TESTE-ANUNCIO-001", "type": "string"},
+          {"id": "plataforma", "name": "plataforma", "value": "mercadoLivre", "type": "string"},
+          {"id": "precoCentavos", "name": "precoCentavos", "value": 19990, "type": "number"},
+          {"id": "coletadoEm", "name": "coletadoEm", "value": "2026-11-12T15:00:00.000Z", "type": "string"},
+          {"id": "origem", "name": "origem", "value": "teste-ficticio", "type": "string"}
+        ]},
+        "options": {}
+      }
+    },
+    {
+      "id": "f01-esperar-api",
+      "name": "Aguardar intervalo entre consultas",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1320, 400],
+      "parameters": {"resume": "timeInterval", "amount": "={{ Number($json.intervaloSegundos || 1) }}", "unit": "seconds"}
+    },
+    {
+      "id": "f01-consultar-anuncios",
+      "name": "Consultar anúncios do produto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 400],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.mercadolibre.com/products/{{ $json.idProduto }}/items",
+        "options": {"response": {"response": {"neverError": true, "responseFormat": "json"}}}
+      }
+    },
+    {
+      "id": "f01-if-404",
+      "name": "Tratar 404 sem anúncios",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1760, 400],
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2},
+          "conditions": [{"id": "sem-anuncios", "leftValue": "={{ $json.code || $json.status }}", "rightValue": 404, "operator": {"type": "number", "operation": "equals"}}],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "f01-sem-anuncios",
+      "name": "Registrar produto sem anúncios",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1980, 500],
+      "parameters": {"mode": "manual", "assignments": {"assignments": [{"id": "semAnuncios", "name": "semAnuncios", "value": true, "type": "boolean"}]}, "options": {}}
+    },
+    {
+      "id": "f01-filtrar-anuncios",
+      "name": "Filtrar anúncios válidos",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [1980, 300],
+      "parameters": {"conditions": {"options": {"caseSensitive": true, "typeValidation": "strict", "version": 2}, "conditions": [{"id": "anuncio-valido", "leftValue": "={{ $json.id }}", "rightValue": "", "operator": {"type": "string", "operation": "notEmpty"}}], "combinator": "and"}}
+    },
+    {
+      "id": "f01-normalizar",
+      "name": "Normalizar saída para F02",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2200, 200],
+      "parameters": {"mode": "manual", "assignments": {"assignments": [
+        {"id": "idProduto", "name": "idProduto", "value": "={{ $json.idProduto || $json.id }}", "type": "string"},
+        {"id": "idAnuncio", "name": "idAnuncio", "value": "={{ $json.idAnuncio || ('ML:' + $json.id) }}", "type": "string"},
+        {"id": "plataforma", "name": "plataforma", "value": "mercadoLivre", "type": "string"},
+        {"id": "precoCentavos", "name": "precoCentavos", "value": "={{ Math.round(Number($json.price || $json.precoCentavos || 0) * ($json.price ? 100 : 1)) }}", "type": "number"},
+        {"id": "coletadoEm", "name": "coletadoEm", "value": "={{ new Date().toISOString() }}", "type": "string"},
+        {"id": "origem", "name": "origem", "value": "products/{id}/items", "type": "string"}
+      ]}, "options": {}}
+    },
+    {
+      "id": "f01-agregar",
+      "name": "Agregar resumo da descoberta",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1.1,
+      "position": [2420, 200],
+      "parameters": {"aggregate": "aggregateAllItemData", "destinationFieldName": "anunciosColetados", "options": {}}
+    },
+    {
+      "id": "f01-nota-parametros",
+      "name": "Grupo 1 — Parâmetros e teste",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-40, 40],
+      "parameters": {"content": "## 1. Parâmetros e teste\nFluxo manual, inativo e limitado.\nmodoTesteFicticio=true impede chamadas externas durante a validação inicial.", "height": 480, "width": 1200, "color": 5}
+    },
+    {
+      "id": "f01-nota-api",
+      "name": "Grupo 2 — Consulta autorizada",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1240, 320],
+      "parameters": {"content": "## 2. Consulta autorizada\nA rota HTTP usa apenas GET /products/{id}/items.\nA credencial OAuth deve ser vinculada localmente após a importação; não foi exportada.", "height": 420, "width": 760, "color": 4}
+    },
+    {
+      "id": "f01-nota-saida",
+      "name": "Grupo 3 — Saída normalizada",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1900, 40],
+      "parameters": {"content": "## 3. Saída para F02\nSem Data Tables, WhatsApp ou links afiliados.\n404 sem anúncios é convertido em resultado controlado; campos próprios preservam o contexto do produto.", "height": 300, "width": 760, "color": 6}
+    }
+  ],
+  "connections": {
+    "Início manual": {"main": [[{"node": "Configurar parâmetros da consulta", "type": "main", "index": 0}]]},
+    "Configurar parâmetros da consulta": {"main": [[{"node": "Preparar dados fictícios", "type": "main", "index": 0}]]},
+    "Preparar dados fictícios": {"main": [[{"node": "Separar produtos encontrados", "type": "main", "index": 0}]]},
+    "Separar produtos encontrados": {"main": [[{"node": "Percorrer produtos com limite", "type": "main", "index": 0}]]},
+    "Percorrer produtos com limite": {"main": [[], [{"node": "Decidir dados fictícios ou API", "type": "main", "index": 0}]]},
+    "Decidir dados fictícios ou API": {"main": [[{"node": "Montar anúncio fictício", "type": "main", "index": 0}], [{"node": "Aguardar intervalo entre consultas", "type": "main", "index": 0}]]},
+    "Montar anúncio fictício": {"main": [[{"node": "Normalizar saída para F02", "type": "main", "index": 0}]]},
+    "Aguardar intervalo entre consultas": {"main": [[{"node": "Consultar anúncios do produto", "type": "main", "index": 0}]]},
+    "Consultar anúncios do produto": {"main": [[{"node": "Tratar 404 sem anúncios", "type": "main", "index": 0}]]},
+    "Tratar 404 sem anúncios": {"main": [[{"node": "Registrar produto sem anúncios", "type": "main", "index": 0}], [{"node": "Filtrar anúncios válidos", "type": "main", "index": 0}]]},
+    "Filtrar anúncios válidos": {"main": [[{"node": "Normalizar saída para F02", "type": "main", "index": 0}]]},
+    "Registrar produto sem anúncios": {"main": [[{"node": "Normalizar saída para F02", "type": "main", "index": 0}]]},
+    "Normalizar saída para F02": {"main": [[{"node": "Agregar resumo da descoberta", "type": "main", "index": 0}, {"node": "Percorrer produtos com limite", "type": "main", "index": 0}]]}
+  },
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": false}
+}
