@@ -72,3 +72,34 @@ A nova implementação real será feita em uma **branch e PR novos**, sem altera
 ## Critério de sucesso da autenticação
 
 Somente considerar pronta após callback HTTPS válido, autorização concluída, `/users/me` com sucesso, execução após a expiração com refresh bem-sucedido, sem exposição de tokens nem alteração descontrolada do token usado pelo script exploratório.
+
+## Resultado da inspeção local — 12/11/2026
+
+O agente verificou o n8n 2.47.3 **sem criar credenciais**:
+
+- OAuth Redirect URL exibida: `http://localhost:5678/rest/oauth2-credential/callback`.
+- `Authorization Code`, `Client Credentials` e `PKCE` estão disponíveis como opções de grant.
+- Autenticação do cliente por `Header` (padrão) ou `Body`.
+- Campos `Scope` e `Auth URI Query Parameters` disponíveis, ambos vazios.
+- URLs e identificadores de aplicação não foram preenchidos.
+
+### Recomendação de implantação
+
+A documentação do Mercado Livre confirma a exigência de HTTPS no redirect cadastrado e correspondência exata do `redirect_uri`; o refresh token é rotativo e de uso único. **Não autorizar ainda** com o callback HTTP.
+
+Para manter o editor n8n apenas em localhost, estudar um **hostname HTTPS estável com encaminhamento exclusivo do caminho** `/rest/oauth2-credential/callback` para um proxy local que alcance o n8n; demais caminhos devem responder 404/403. Um túnel Cloudflare com rota restrita por caminho é uma opção, não configuração aprovada. O próprio retorno OAuth transporta código sensível temporário; exigir HTTPS, correspondência de `state`, mínimo de logs e controles adequados. Não publicar toda a API `/rest` nem a interface gráfica.
+
+O n8n usa parâmetros de ambiente para configurar URLs externas (ex.: `N8N_EDITOR_BASE_URL`, `N8N_PROTOCOL`, `N8N_HOST`), mas **não presumir** qual deles altera a URL OAuth no n8n 2.47.3: validar na interface depois de qualquer alteração controlada e documentar efeito sobre acesso local e MCP. O `N8N_WEBHOOK_URL` documentado é voltado aos webhooks, não constitui garantia de ajuste do callback OAuth.
+
+A aplicação exploratória já utiliza um Cloudflare Worker para callback Python; investigar sua disponibilidade e arquitetura **sem reutilizar a rota existente de forma destrutiva, sem revelar segredos e sem alterar o redirect do aplicativo existente**.
+
+Referências:
+- https://developers.mercadolivre.com.br/autenticacao-e-autorizacao
+- https://developers.mercadolivre.com.br/desenvolvimento-in-house
+- https://docs.n8n.io/hosting/configuration/environment-variables/deployment/
+- https://github.com/n8n-io/n8n-docs/blob/main/docs/deploy/host-n8n/configure-n8n/basic-configuration/configuration-examples/configure-webhook-urls-with-reverse-proxy.md
+- https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/
+
+### Próxima tarefa local autorizada
+
+Fazer somente diagnóstico de infraestrutura existente: disponibilidade de domínio HTTPS estável, Cloudflare/Worker/túnel pré-existente, como o n8n é iniciado (sem mostrar valores secretos), riscos de alteração do endereço local e se há um proxy local. Não criar túnel, não mexer em DNS, não mudar configurações nem executar login. A pessoa responsável realizará o preenchimento dos segredos e a autorização interativa quando a solução tiver sido aprovada.
