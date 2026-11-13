@@ -103,3 +103,20 @@ Referências:
 ### Próxima tarefa local autorizada
 
 Fazer somente diagnóstico de infraestrutura existente: disponibilidade de domínio HTTPS estável, Cloudflare/Worker/túnel pré-existente, como o n8n é iniciado (sem mostrar valores secretos), riscos de alteração do endereço local e se há um proxy local. Não criar túnel, não mexer em DNS, não mudar configurações nem executar login. A pessoa responsável realizará o preenchimento dos segredos e a autorização interativa quando a solução tiver sido aprovada.
+
+## Diagnóstico de rede local e decisão incremental
+
+O agente confirmou instalação n8n global por npm no Windows, ouvindo em `0.0.0.0:5678` e `[::]:5678`; sem proxy/túnel/Cloudflare DNS encontrados, e sem variáveis de endereço externo visíveis. **O n8n não está limitado à interface localhost**. Prioridade: avaliar restrição de escuta local e firewall, sem alterar ainda o processo. Acessar pelo endereço localhost não significa que outros dispositivos na rede não possam alcançar o serviço.
+
+**Antes de contratar/configurar Cloudflare**, executar um teste reversível de configuração, sem credenciais reais: em processo local isolado (com backup e parada controlada, se indispensável), definir temporariamente `N8N_EDITOR_BASE_URL=https://oauth.exemplo.invalid` e observar se a OAuth Redirect URL exibida muda para `https://oauth.exemplo.invalid/rest/oauth2-credential/callback`, preservando o editor e MCP. Depois restaurar configuração anterior e confirmar `http://localhost:5678/rest/oauth2-credential/callback`. A URL `.invalid` é *somente fictícia*, nunca usar no DevCenter.
+
+Referências de implementação indicam `N8N_EDITOR_BASE_URL` como origem da base do callback OAuth; o efeito real deve ser confirmado na instalação 2.47.3, não pressuposto. Configurar `N8N_EDITOR_BASE_URL` público pode alterar outros links do editor mesmo mantendo-o local.
+
+Quando e **somente quando** houver domínio público HTTPS estável sob controle da pessoa responsável, encaminhar exclusivamente `GET /rest/oauth2-credential/callback` (e métodos estritamente necessários), retornando 404/403 para demais caminhos. Controlar acesso, registros de URL e query string, validação de `state`, e não publicar editor nem REST. Testar bloqueio externo com URL real antes da autorização.
+
+Alternativa a estudar se não houver domínio: aproveitar o mecanismo HTTPS de callback do script Python existente **sem reutilizá-lo indevidamente**; a solução será comparada por esforço de operação, risco e rotação de token.
+
+### Etapas autorizadas agora
+- Inspeção não destrutiva da configuração de escuta e do firewall para alcance na LAN, sem varredura de rede.
+- Teste isolado e reversível do efeito de `N8N_EDITOR_BASE_URL` sobre o OAuth Redirect URL, sem adicionar credenciais nem iniciar autenticação, somente se puder ser feito sem interromper a instância ativa; caso contrário, reportar pré-requisitos e pedir aprovação.
+- Nenhum serviço Cloudflare, DNS, DevCenter, token ou credencial deve ser alterado sem autorização explícita.
