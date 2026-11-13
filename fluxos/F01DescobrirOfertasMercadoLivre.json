@@ -261,12 +261,16 @@
       ]}, "options": {}}
     },
     {
-      "id": "f01-agregar",
+      "id": "f01-consolidar",
       "name": "Consolidar resultados após o loop",
-      "type": "n8n-nodes-base.aggregate",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [2420, 200],
-      "parameters": {"aggregate": "aggregateAllItemData", "destinationFieldName": "resultadosDescoberta", "include": "allFields", "options": {}}
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ofertas = [];\nconst produtosSemOfertas = [];\n\nfor (const item of $input.all()) {\n  const registro = item.json;\n  const possuiOfertaValida = typeof registro.idAnuncio === 'string'\n    && registro.idAnuncio.trim() !== ''\n    && Number.isFinite(Number(registro.precoCentavos));\n\n  if (possuiOfertaValida) {\n    ofertas.push(registro);\n  } else if (registro.semAnuncios === true) {\n    produtosSemOfertas.push(registro);\n  }\n}\n\nreturn [{\n  json: {\n    totalOfertas: ofertas.length,\n    totalProdutosSemOfertas: produtosSemOfertas.length,\n    ofertas,\n    produtosSemOfertas,\n  },\n}];"
+      }
     },
     {
       "id": "f01-nota-parametros",
