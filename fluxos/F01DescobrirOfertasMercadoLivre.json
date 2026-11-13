@@ -1,0 +1,325 @@
+{
+  "name": "F01 - Descobrir Ofertas - Mercado Livre",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "f01-manual",
+      "name": "Início manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 260],
+      "parameters": {}
+    },
+    {
+      "id": "f01-parametros",
+      "name": "Configurar parâmetros da consulta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 260],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "termoBusca", "name": "termoBusca", "value": "produto fictício", "type": "string"},
+            {"id": "limiteProdutosEncontrados", "name": "limiteProdutosEncontrados", "value": 3, "type": "number"},
+            {"id": "limiteProdutosExaminados", "name": "limiteProdutosExaminados", "value": 2, "type": "number"},
+            {"id": "limitePaginas", "name": "limitePaginas", "value": 2, "type": "number"},
+            {"id": "limiteTentativas", "name": "limiteTentativas", "value": 2, "type": "number"},
+            {"id": "intervaloSegundos", "name": "intervaloSegundos", "value": 1, "type": "number"},
+            {"id": "modoTesteFicticio", "name": "modoTesteFicticio", "value": true, "type": "boolean"},
+            {"id": "paginaAtual", "name": "paginaAtual", "value": 0, "type": "number"},
+            {"id": "tentativaAtual", "name": "tentativaAtual", "value": 0, "type": "number"}
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f01-dados-ficticios",
+      "name": "Simular produtos do catálogo",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [440, 260],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "produtos", "name": "produtos", "value": "={{ [{ idProduto: 'ML:TESTE001', nomeProduto: 'Produto fictício 1' }, { idProduto: 'ML:TESTE002', nomeProduto: 'Produto fictício 2' }] }}", "type": "json"}
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f01-separar-produtos",
+      "name": "Separar produtos fictícios",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [660, 260],
+      "parameters": {"fieldToSplitOut": "produtos", "include": "allOtherFields"}
+    },
+    {
+      "id": "f01-contexto-ficticio",
+      "name": "Marcar contexto fictício do produto",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [770, 120],
+      "parameters": {"mode": "manual", "assignments": {"assignments": [
+        {"id": "idProduto", "name": "idProduto", "value": "={{ ($json.produtos && $json.produtos.idProduto) || $json.idProduto }}", "type": "string"},
+        {"id": "nomeProduto", "name": "nomeProduto", "value": "={{ ($json.produtos && $json.produtos.nomeProduto) || $json.nomeProduto }}", "type": "string"},
+        {"id": "modoTesteFicticio", "name": "modoTesteFicticio", "value": true, "type": "boolean"},
+        {"id": "paginaAtual", "name": "paginaAtual", "value": 0, "type": "number"},
+        {"id": "tentativaAtual", "name": "tentativaAtual", "value": 0, "type": "number"}
+      ]}, "options": {}}
+    },
+    {
+      "id": "f01-esperar-catalogo",
+      "name": "Aguardar intervalo antes do catálogo",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [660, 460],
+      "parameters": {"resume": "timeInterval", "amount": "={{ Number($json.intervaloSegundos || 1) }}", "unit": "seconds"}
+    },
+    {
+      "id": "f01-consultar-catalogo",
+      "name": "Consultar catálogo por palavra-chave",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 460],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q={{ encodeURIComponent($json.termoBusca) }}&limit={{ $json.limiteProdutosEncontrados }}&offset={{ $json.paginaAtual * $json.limiteProdutosEncontrados }}",
+        "options": {"response": {"response": {"neverError": true, "responseFormat": "json", "includeInputData": true}}}
+      }
+    },
+    {
+      "id": "f01-separar-resultados-catalogo",
+      "name": "Separar resultados do catálogo",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [1100, 460],
+      "parameters": {"fieldToSplitOut": "results", "include": "allOtherFields"}
+    },
+    {
+      "id": "f01-contexto-autorizado",
+      "name": "Marcar contexto autorizado do produto",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1320, 460],
+      "parameters": {"mode": "manual", "assignments": {"assignments": [
+        {"id": "idProduto", "name": "idProduto", "value": "={{ ($json.results && $json.results.id) ? 'ML:' + $json.results.id : $json.idProduto }}", "type": "string"},
+        {"id": "nomeProduto", "name": "nomeProduto", "value": "={{ ($json.results && $json.results.name) || $json.nomeProduto }}", "type": "string"},
+        {"id": "modoTesteFicticio", "name": "modoTesteFicticio", "value": false, "type": "boolean"}
+      ]}, "options": {}}
+    },
+    {
+      "id": "f01-loop-produtos",
+      "name": "Percorrer produtos com limites",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [880, 260],
+      "parameters": {"batchSize": 1, "options": {}}
+    },
+    {
+      "id": "f01-if-teste",
+      "name": "Escolher fonte fictícia ou catálogo",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 260],
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2},
+          "conditions": [{"id": "modo-teste", "leftValue": "={{ $json.modoTesteFicticio }}", "rightValue": true, "operator": {"type": "boolean", "operation": "equals"}}],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "f01-if-fonte-anuncios",
+      "name": "Decidir simulação ou consulta de anúncios",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 120],
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2},
+          "conditions": [{"id": "modo-anuncios", "leftValue": "={{ $json.modoTesteFicticio }}", "rightValue": true, "operator": {"type": "boolean", "operation": "equals"}}],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "f01-anuncio-ficticio",
+      "name": "Simular resposta de anúncios",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1320, 120],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {"assignments": [
+          {"id": "idProduto", "name": "idProduto", "value": "={{ $json.idProduto }}", "type": "string"},
+          {"id": "nomeProduto", "name": "nomeProduto", "value": "={{ $json.nomeProduto }}", "type": "string"},
+          {"id": "statusCode", "name": "statusCode", "value": 200, "type": "number"},
+          {"id": "results", "name": "results", "value": "={{ $json.idProduto === 'ML:TESTE001' ? [{ item_id: 'MLB-TESTE-ANUNCIO-001', price: 199.90 }, { item_id: 'MLB-TESTE-ANUNCIO-002', price: 249.90 }] : [] }}", "type": "json"}
+        ]},
+        "options": {}
+      }
+    },
+    {
+      "id": "f01-esperar-api",
+      "name": "Aguardar intervalo antes dos anúncios",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1320, 400],
+      "parameters": {"resume": "timeInterval", "amount": "={{ Number($json.intervaloSegundos || 1) }}", "unit": "seconds"}
+    },
+    {
+      "id": "f01-consultar-anuncios",
+      "name": "Consultar anúncios do produto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 400],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.mercadolibre.com/products/{{ String($json.idProduto).replace(/^ML:/, '') }}/items",
+        "options": {"response": {"response": {"neverError": true, "responseFormat": "json", "includeInputData": true}}}
+      }
+    },
+    {
+      "id": "f01-if-404",
+      "name": "Tratar 404 sem anúncios",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1760, 400],
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2},
+          "conditions": [{"id": "sem-anuncios", "leftValue": "={{ $json.code || $json.status }}", "rightValue": 404, "operator": {"type": "number", "operation": "equals"}}],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "f01-if-resultados",
+      "name": "Verificar se existem anúncios",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1980, 200],
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2},
+          "conditions": [{"id": "resultados-anuncios", "leftValue": "={{ Array.isArray($json.results) && $json.results.length > 0 }}", "rightValue": true, "operator": {"type": "boolean", "operation": "equals"}}],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "f01-separar-anuncios",
+      "name": "Separar anúncios encontrados",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [2200, 120],
+      "parameters": {"fieldToSplitOut": "results", "include": "allOtherFields"}
+    },
+    {
+      "id": "f01-sem-anuncios",
+      "name": "Marcar produto sem anúncios",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1980, 500],
+      "parameters": {"mode": "manual", "assignments": {"assignments": [
+        {"id": "idProduto", "name": "idProduto", "value": "={{ $json.idProduto }}", "type": "string"},
+        {"id": "nomeProduto", "name": "nomeProduto", "value": "={{ $json.nomeProduto }}", "type": "string"},
+        {"id": "semAnuncios", "name": "semAnuncios", "value": true, "type": "boolean"}
+      ]}, "options": {}}
+    },
+    {
+      "id": "f01-filtrar-anuncios",
+      "name": "Filtrar anúncios com item_id",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [2200, 300],
+      "parameters": {"conditions": {"options": {"caseSensitive": true, "typeValidation": "strict", "version": 2}, "conditions": [{"id": "anuncio-valido", "leftValue": "={{ $json.results && $json.results.item_id }}", "rightValue": "", "operator": {"type": "string", "operation": "notEmpty"}}], "combinator": "and"}}
+    },
+    {
+      "id": "f01-normalizar",
+      "name": "Normalizar anúncio e preservar contexto",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2200, 200],
+      "parameters": {"mode": "manual", "assignments": {"assignments": [
+        {"id": "idProduto", "name": "idProduto", "value": "={{ $json.idProduto }}", "type": "string"},
+        {"id": "idAnuncio", "name": "idAnuncio", "value": "={{ 'ML:' + $json.results.item_id }}", "type": "string"},
+        {"id": "nomeProduto", "name": "nomeProduto", "value": "={{ $json.nomeProduto }}", "type": "string"},
+        {"id": "plataforma", "name": "plataforma", "value": "mercadoLivre", "type": "string"},
+        {"id": "precoCentavos", "name": "precoCentavos", "value": "={{ Math.round(Number($json.results.price) * 100) }}", "type": "number"},
+        {"id": "coletadoEm", "name": "coletadoEm", "value": "={{ new Date().toISOString() }}", "type": "string"},
+        {"id": "origem", "name": "origem", "value": "products/{id}/items", "type": "string"}
+      ]}, "options": {}}
+    },
+    {
+      "id": "f01-consolidar",
+      "name": "Consolidar resultados após o loop",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2420, 200],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const ofertas = [];\nconst produtosSemOfertas = [];\n\nfor (const item of $input.all()) {\n  const registro = item.json;\n  const possuiOfertaValida = typeof registro.idAnuncio === 'string'\n    && registro.idAnuncio.trim() !== ''\n    && Number.isFinite(Number(registro.precoCentavos));\n\n  if (possuiOfertaValida) {\n    ofertas.push(registro);\n  } else if (registro.semAnuncios === true) {\n    produtosSemOfertas.push(registro);\n  }\n}\n\nreturn [{\n  json: {\n    totalOfertas: ofertas.length,\n    totalProdutosSemOfertas: produtosSemOfertas.length,\n    ofertas,\n    produtosSemOfertas,\n  },\n}];"
+      }
+    },
+    {
+      "id": "f01-nota-parametros",
+      "name": "Grupo 1 — Fonte e limites",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-40, 40],
+      "parameters": {"content": "## 1. Fonte e limites\nFluxo manual e inativo. O modoTesteFicticio é avaliado antes do catálogo e reaplicado por produto. Paginação, limites efetivos, tentativas e autenticação continuam pendentes de validação autorizada.", "height": 560, "width": 1500, "color": 5}
+    },
+    {
+      "id": "f01-nota-api",
+      "name": "Grupo 2 — Contexto e anúncios",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1240, 320],
+      "parameters": {"content": "## 2. Contexto e anúncios\nRespostas usam results, item_id e price. Split Out separa catálogo e anúncios, enquanto os nós de contexto e simulação reatribuem idProduto e nomeProduto. O prefixo interno ML: é removido somente antes da URL da API. Autenticação permanece pendente.", "height": 560, "width": 1200, "color": 4}
+    },
+    {
+      "id": "f01-nota-saida",
+      "name": "Grupo 3 — Saída e consolidação",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1900, 40],
+      "parameters": {"content": "## 3. Saída e consolidação\n404 e results vazio seguem para o marcador de produto sem anúncios. O ramo done do Loop consolida após todos os produtos. No teste: 2 anúncios válidos e 1 produto sem anúncios. Sem Data Tables, WhatsApp ou links afiliados.", "height": 380, "width": 1100, "color": 6}
+    }
+  ],
+  "connections": {
+    "Início manual": {"main": [[{"node": "Configurar parâmetros da consulta", "type": "main", "index": 0}]]},
+    "Configurar parâmetros da consulta": {"main": [[{"node": "Escolher fonte fictícia ou catálogo", "type": "main", "index": 0}]]},
+    "Escolher fonte fictícia ou catálogo": {"main": [[{"node": "Simular produtos do catálogo", "type": "main", "index": 0}], [{"node": "Aguardar intervalo antes do catálogo", "type": "main", "index": 0}]]},
+    "Simular produtos do catálogo": {"main": [[{"node": "Separar produtos fictícios", "type": "main", "index": 0}]]},
+    "Separar produtos fictícios": {"main": [[{"node": "Marcar contexto fictício do produto", "type": "main", "index": 0}]]},
+    "Marcar contexto fictício do produto": {"main": [[{"node": "Percorrer produtos com limites", "type": "main", "index": 0}]]},
+    "Aguardar intervalo antes do catálogo": {"main": [[{"node": "Consultar catálogo por palavra-chave", "type": "main", "index": 0}]]},
+    "Consultar catálogo por palavra-chave": {"main": [[{"node": "Separar resultados do catálogo", "type": "main", "index": 0}]]},
+    "Separar resultados do catálogo": {"main": [[{"node": "Marcar contexto autorizado do produto", "type": "main", "index": 0}]]},
+    "Marcar contexto autorizado do produto": {"main": [[{"node": "Percorrer produtos com limites", "type": "main", "index": 0}]]},
+    "Percorrer produtos com limites": {"main": [[{"node": "Consolidar resultados após o loop", "type": "main", "index": 0}], [{"node": "Decidir simulação ou consulta de anúncios", "type": "main", "index": 0}]]},
+    "Decidir simulação ou consulta de anúncios": {"main": [[{"node": "Simular resposta de anúncios", "type": "main", "index": 0}], [{"node": "Aguardar intervalo antes dos anúncios", "type": "main", "index": 0}]]},
+    "Simular resposta de anúncios": {"main": [[{"node": "Verificar se existem anúncios", "type": "main", "index": 0}]]},
+    "Aguardar intervalo antes dos anúncios": {"main": [[{"node": "Consultar anúncios do produto", "type": "main", "index": 0}]]},
+    "Consultar anúncios do produto": {"main": [[{"node": "Tratar 404 sem anúncios", "type": "main", "index": 0}]]},
+    "Tratar 404 sem anúncios": {"main": [[{"node": "Marcar produto sem anúncios", "type": "main", "index": 0}], [{"node": "Verificar se existem anúncios", "type": "main", "index": 0}]]},
+    "Verificar se existem anúncios": {"main": [[{"node": "Separar anúncios encontrados", "type": "main", "index": 0}], [{"node": "Marcar produto sem anúncios", "type": "main", "index": 0}]]},
+    "Separar anúncios encontrados": {"main": [[{"node": "Filtrar anúncios com item_id", "type": "main", "index": 0}]]},
+    "Filtrar anúncios com item_id": {"main": [[{"node": "Normalizar anúncio e preservar contexto", "type": "main", "index": 0}]]},
+    "Marcar produto sem anúncios": {"main": [[{"node": "Percorrer produtos com limites", "type": "main", "index": 0}]]},
+    "Normalizar anúncio e preservar contexto": {"main": [[{"node": "Percorrer produtos com limites", "type": "main", "index": 0}]]}
+  },
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": false}
+}
